@@ -1,18 +1,18 @@
-%% Setup
-%num = 200;
+%% Datos del problema
+num = 634;
 opts = detectImportOptions("datos_unicos.txt");
 %opts.SelectedVariableNames = [2:3];
 opts.DataLines = [1, num];
 M = readmatrix("datos_unicos.txt", opts);
 
-%idks - Aristas del grafo
+%idxs - Aristas del grafo
 idxs = nchoosek(1:num, 2);
 %D - Peso de cada arista
 D = hypot(M(idxs(:, 1), 1) - M(idxs(:, 2), 1), ...
           M(idxs(:, 1), 2) - M(idxs(:, 2), 2));
 tot_edges = length(D);
 
-%% Constraints
+%% Restricciones iniciales
 % Primera restriccion: Suma de caminos activos = num de ciudades
 Aeq = spones(1:length(idxs)); % Adds up the number of trips
 beq = num;
@@ -40,41 +40,36 @@ opts = optimoptions('intlinprog','Display','off');
 tic;
 [x_tsp,costopt,exitflag,output] = intlinprog(D,intcon,[],[],Aeq,beq,lb,ub,opts);
 
-%num_subtours = length(detectSubtours(x_tsp, idxs))
 %% Iterar hasta evitar sub recorridos
 tours = detectSubtours(x_tsp,idxs);
 numtours = length(tours); % number of subtours
 %fprintf('# of subtours: %d\n',numtours);
 iters = 1;
 
-A = spalloc(0,tot_edges,0); % Allocate a sparse linear inequality constraint matrix
+A = spalloc(0,tot_edges,0);
 b = [];
-while numtours > 1 % repeat until there is just one subtour
-    % Add the subtour constraints
-    b = [b;zeros(numtours,1)]; % allocate b
-    A = [A;spalloc(numtours,tot_edges,num)]; % a guess at how many nonzeros to allocate
+while numtours > 1
+    % Añadir restricciones para evitar los subrecorridos encontrados
+    b = [b;zeros(numtours,1)];
+    A = [A;spalloc(numtours,tot_edges,num)];
     for ii = 1:numtours
-        rowIdx = size(A,1)+1; % Counter for indexing
-        subTourIdx = tours{ii}; % Extract the current subtour
-%         The next lines find all of the variables associated with the
-%         particular subtour, then add an inequality constraint to prohibit
-%         that subtour and all subtours that use those stops.
+        rowIdx = size(A,1)+1;
+        subTourIdx = tours{ii};
         variations = nchoosek(1:length(subTourIdx),2);
         for jj = 1:length(variations)
             whichVar = (sum(idxs==subTourIdx(variations(jj,1)),2)) & ...
                        (sum(idxs==subTourIdx(variations(jj,2)),2));
             A(rowIdx,whichVar) = 1;
         end
-        b(rowIdx) = length(subTourIdx)-1; % One less trip than subtour stops
+        b(rowIdx) = length(subTourIdx)-1;
     end
 
-    % Try to optimize again
+    % Volver a resolver el problema
     [x_tsp,costopt,exitflag,output] = intlinprog(D,intcon,A,b,Aeq,beq,lb,ub,opts);
     
-    % How many subtours this time?
+    % Contar los subrecorridos encontrados
     tours = detectSubtours(x_tsp,idxs);
     numtours = length(tours); % number of subtours
     iters = iters + 1;
-    %fprintf('# of subtours: %d\n',numtours);
 end
 t = toc;
